@@ -1,26 +1,26 @@
 -- copied from https://gist.github.com/tmandry/a5b1ab6d6ea012c1e8c5
 
-local events = require "hs.uielement.watcher"
+local events = hs.uielement.watcher
 local application = require "hs.application"
 
 local watchers = {}
 local windowEventWatcher = nil
-local windowEvents = {"open"   = events.windowCreated,
-                      "close"  = events.elementDestroyed,
-                      "move"   = events.windowMoved,
-                      "resize" = events.windowResized}
+local windowEvents = {open   = events.windowCreated,
+                      close  = events.elementDestroyed,
+                      move   = events.windowMoved,
+                      resize = events.windowResized}
 
 local function start(callback)
-  if not windowEventWatcher then error("watcher already running, can't start")
+  if not windowEventWatcher then error("watcher already running, can't start") end
   windowEventWatcher = callback
-  appsWatcher = application.watcher.new(handleGlobalAppEvent)
+  appsWatcher = application.watcher.new(handleAppLifeEvent)
   appsWatcher:start()
  
   -- Watch any apps that already exist
   local apps = hs.application.runningApplications()
-  for i = 1, #apps do
-    if apps[i]:title() ~= "Hammerspoon" then
-      watchApp(apps[i], true)
+    for i = 1, #apps do
+      if apps[i]:title() ~= "Hammerspoon" then
+        watchApp(apps[i], true)
     end
   end
 end
@@ -38,14 +38,15 @@ local function cleanupWindowWatcher(pid, windowId)
 end
 
 local function cleanupAppWatchers(pid)
-   for id, watcher in ipairs(watchers[pid]) do
+   watchers[pid].watcher:stop()
+   for id, watcher in ipairs(watchers[pid].windows) do
       watcher:stop()
    end
    watchers[pid] = nil
 end
 
 
-local function handleGlobalAppEvent(name, event, app)
+local function handleAppLifeEvent(name, event, app)
   if event == hs.application.watcher.launched then
     watchApp(app)
   elseif event == hs.application.watcher.terminated then
@@ -92,12 +93,15 @@ end
  
 local function handleWindowEvent(win, event, watcher, info)
   if event == events.elementDestroyed then
-    
+     cleanupWindowWatcher(info.pid, info.id)
   else
     -- Handle other events...
   end
   hs.alert.show('window event '..event..' on '..info.id)
 end
- 
--- init()
 
+return {
+   start = start,
+   stop  = stop,
+   events = windowEvents
+}
