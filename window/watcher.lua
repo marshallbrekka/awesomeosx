@@ -3,34 +3,13 @@
 local events = hs.uielement.watcher
 local application = require "hs.application"
 
+local appsWather = nil
 local watchers = {}
 local windowEventWatcher = nil
 local windowEvents = {open   = events.windowCreated,
                       close  = events.elementDestroyed,
                       move   = events.windowMoved,
                       resize = events.windowResized}
-
-local function start(callback)
-  if not windowEventWatcher then error("watcher already running, can't start") end
-  windowEventWatcher = callback
-  appsWatcher = application.watcher.new(handleAppLifeEvent)
-  appsWatcher:start()
- 
-  -- Watch any apps that already exist
-  local apps = hs.application.runningApplications()
-    for i = 1, #apps do
-      if apps[i]:title() ~= "Hammerspoon" then
-        watchApp(apps[i], true)
-    end
-  end
-end
-
-local function stop()
-   for pid, watchers in ipairs(watchers) do
-      cleanupAppWatchers(pid)
-   end
-   windowEventWatcher = nil
-end
 
 local function cleanupWindowWatcher(pid, windowId)
    watchers[pid].windows[windowId]:stop()
@@ -45,38 +24,17 @@ local function cleanupAppWatchers(pid)
    watchers[pid] = nil
 end
 
-
-local function handleAppLifeEvent(name, event, app)
-  if event == hs.application.watcher.launched then
-    watchApp(app)
-  elseif event == hs.application.watcher.terminated then
-    -- Clean up
-    cleanupAppWatchers(app:pid())
+local function handleWindowEvent(win, event, watcher, info)
+  if event == events.elementDestroyed then
+     cleanupWindowWatcher(info.pid, info.id)
+     windowEventWatcher("closed")
+  else
+     windowEventWatcher("other")
+    -- Handle other events...
   end
+  hs.alert.show('window event '..event..' on '..info.id)
 end
 
-local function watchApp(app, initializing)
-  if watchers[app:pid()] then return end
- 
-  local watcher = app:newWatcher(handleAppEvent)
-  watchers[app:pid()] = {watcher = watcher, windows = {}}
- 
-  watcher:start({events.windowCreated, events.focusedWindowChanged})
- 
-  -- Watch any windows that already exist
-  for i, window in pairs(app:allWindows()) do
-    watchWindow(window, initializing)
-  end
-end
- 
-local function handleAppEvent(element, event)
-  if event == events.windowCreated then
-    watchWindow(element)
-  elseif event == events.focusedWindowChanged then
-    -- Handle window change
-  end
-end
- 
 local function watchWindow(win, initializing)
   local appWindows = watchers[win:application():pid()].windows
   if win:isStandard() and not appWindows[win:id()] then
@@ -90,15 +48,74 @@ local function watchWindow(win, initializing)
     end
   end
 end
- 
-local function handleWindowEvent(win, event, watcher, info)
-  if event == events.elementDestroyed then
-     cleanupWindowWatcher(info.pid, info.id)
-  else
-    -- Handle other events...
+
+
+local function handleAppEvent(element, event)
+  print("app event"..event)
+  if event == events.windowCreated then
+    watchWindow(element)
+    windowEventWatcher("open")
+  elseif event == events.focusedWindowChanged then
+    windowEventWatcher("focus")
+    -- Handle window change
   end
-  hs.alert.show('window event '..event..' on '..info.id)
 end
+
+local function watchApp(app, initializing)
+  print "watching app"
+  print(app)
+  if watchers[app:pid()] then return end
+  print "post watching"
+
+  local watcher = app:newWatcher(handleAppEvent)
+  watchers[app:pid()] = {watcher = watcher, windows = {}}
+ 
+  watcher:start({events.windowCreated, events.focusedWindowChanged})
+ 
+  -- Watch any windows that already exist
+  for i, window in pairs(app:allWindows()) do
+    watchWindow(window, initializing)
+  end
+end
+
+
+local function handleAppLifeEvent(name, event, app)
+  if event == hs.application.watcher.launched then
+    print "app event" 
+    watchApp(app)
+  elseif event == hs.application.watcher.terminated then
+    -- Clean up
+    print('cleaning up app'..app:pid()..'')
+    cleanupAppWatchers(app:pid())
+  end
+end
+
+local function start(callback)
+  if windowEventWatcher then error("watcher already running, can't start") end
+  windowEventWatcher = callback
+  appsWatcher = application.watcher.new(handleAppLifeEvent)
+  appsWatcher:start()
+ 
+  -- Watch any apps that already exist
+  local apps = hs.application.runningApplications()
+  for i, app in ipairs(apps) do
+     print(app)
+      print("starting app things"..app:title())
+      if app:title() ~= "Hammerspoon" then
+        watchApp(app, true)
+    end
+  end
+end
+
+local function stop()
+   appsWatcher:stop()
+   for pid, watchers in ipairs(watchers) do
+      cleanupAppWatchers(pid)
+   end
+   windowEventWatcher = nil
+end
+
+
 
 return {
    start = start,
