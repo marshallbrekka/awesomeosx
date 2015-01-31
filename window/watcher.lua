@@ -38,11 +38,13 @@ end
 local function watchWindow(win, initializing)
   local appWindows = watchers[win:application():pid()].windows
   if win:isStandard() and not appWindows[win:id()] then
+     print("creating new window watcher")
     local watcher = win:newWatcher(handleWindowEvent, {pid=win:pid(), id=win:id()})
+
     appWindows[win:id()] = watcher
- 
+    print("starting window watcher "..win:id().." "..win:title().." "..win:role().." "..win:pid())
     watcher:start({events.elementDestroyed, events.windowResized, events.windowMoved})
- 
+    print("started window watcher")
     if not initializing then
       hs.alert.show('window created: '..win:id()..' with title: '..win:title())
     end
@@ -68,14 +70,20 @@ local function watchApp(app, initializing)
   print "post watching"
 
   local watcher = app:newWatcher(handleAppEvent)
+  print "constructed watcher"
   watchers[app:pid()] = {watcher = watcher, windows = {}}
+  print "stored watcher"
  
   watcher:start({events.windowCreated, events.focusedWindowChanged})
+  print "started watcher"
  
   -- Watch any windows that already exist
   for i, window in pairs(app:allWindows()) do
+    print("watching window: "..window:title())
     watchWindow(window, initializing)
+    print("watched window")
   end
+  print "got windows"
 end
 
 
@@ -99,10 +107,15 @@ local function start(callback)
   -- Watch any apps that already exist
   local apps = hs.application.runningApplications()
   for i, app in ipairs(apps) do
-     print(app)
-      print("starting app things"..app:title())
-      if app:title() ~= "Hammerspoon" then
-        watchApp(app, true)
+    if app:kind() == 1 and app:pid() == 73862 then
+       print(i..' '..app:kind()..' '..app:pid()..' '..app:title())
+       -- if i == 9 then 
+       --    return
+       -- end
+
+       if app:title() ~= "Hammerspoon" then
+          watchApp(app, true)
+       end
     end
   end
 end
