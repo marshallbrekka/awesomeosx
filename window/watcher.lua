@@ -1,14 +1,22 @@
+-- Provides an interface for listening to window/app related events.
+-- 
+-- A handler fn must be provided when listening for events. The
+-- handler accept 3 arguments: the event type <string>, the proccess
+-- id, and a window id.
+--
+-- The "focus" event can pass a nil window id if an app gained focus,
+-- but had no open windows.
 local events = hs.uielement.watcher
 local application = require "hs.application"
 
 local appsWatcher = nil
 local watchers = {}
 local windowEventWatcher = nil
-local windowEvents = {open   = events.windowCreated,
-                      close  = events.elementDestroyed,
-                      move   = events.windowMoved,
-                      resize = events.windowResized,
-                      focus  = events.focusedWindowChanged}
+local windowEvents = {open   = "WindowOpen",
+                      close  = "WindowClose",
+                      move   = "WindowMove",
+                      resize = "WindowResize",
+                      focus  = "WindowFocus"}
 
 local function cleanupWindowWatcher(pid, windowId)
    watchers[pid].windows[windowId]:stop()
@@ -26,11 +34,15 @@ end
 
 local function handleWindowEvent(win, event, watcher, info)
   if event == events.elementDestroyed then
-     cleanupWindowWatcher(info.pid, info.id)
+    cleanupWindowWatcher(info.pid, info.id)
   else
-    -- TODO add other window events
-    -- windowEventWatcher("other")
-    -- Handle other events...
+   local eventType = nil
+   if event == events.windowMoved then
+      eventType = windowEvents.move
+   else 
+      eventType = windowEvents.resize
+   end
+   windowEventWatcher(eventType, info.pid, info.id)
   end
   hs.alert.show('window event '..event..' on '..info.id)
 end
@@ -49,9 +61,13 @@ end
 local function handleAppEvent(element, event)
   if event == events.windowCreated then
     watchWindow(element)
-  elseif event == events.focusedWindowChanged then
-    windowEventWatcher(events.focusedWindowChanged)
-    -- Handle window change
+  elseif event == events.focusedWindowChanged or event == events.applicationActivated then
+    local focusedWindow = hs.window.focusedWindow()
+    local winId = nil
+    if (focusedWindow) then
+       winId = focusedWindow:id()
+    end
+    windowEventWatcher(windowEvents.focus, element:pid(), winId)
   end
 end
 
@@ -59,7 +75,7 @@ local function watchApp(app, initializing)
   if watchers[app:pid()] then return end
   local watcher = app:newWatcher(handleAppEvent)
   watchers[app:pid()] = {watcher = watcher, windows = {}}
-  watcher:start({events.windowCreated, events.focusedWindowChanged})
+  watcher:start({events.windowCreated, events.focusedWindowChanged, events.applicationActivated})
  
   -- Watch any windows that already exist
   for i, window in pairs(app:allWindows()) do
@@ -87,9 +103,7 @@ local function start(callback)
   local apps = hs.application.runningApplications()
   for i, app in pairs(apps) do
     if app:kind() == 1 then
-       if app:title() ~= "Hammerspoon" then
-          watchApp(app, true)
-       end
+       watchApp(app, true)
     end
   end
 end
