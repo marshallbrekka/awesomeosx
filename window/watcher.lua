@@ -1,25 +1,25 @@
--- copied from https://gist.github.com/tmandry/a5b1ab6d6ea012c1e8c5
-
 local events = hs.uielement.watcher
 local application = require "hs.application"
 
-local appsWather = nil
+local appsWatcher = nil
 local watchers = {}
 local windowEventWatcher = nil
 local windowEvents = {open   = events.windowCreated,
                       close  = events.elementDestroyed,
                       move   = events.windowMoved,
-                      resize = events.windowResized}
+                      resize = events.windowResized,
+                      focus  = events.focusedWindowChanged}
 
 local function cleanupWindowWatcher(pid, windowId)
    watchers[pid].windows[windowId]:stop()
    watchers[pid].windows[windowId] = nil
+   windowEventWatcher(windowEvents.close, pid, windowId)
 end
 
 local function cleanupAppWatchers(pid)
    watchers[pid].watcher:stop()
-   for id, watcher in ipairs(watchers[pid].windows) do
-      watcher:stop()
+   for windowId, watcher in pairs(watchers[pid].windows) do
+      cleanupWindowWatcher(pid, windowId)
    end
    watchers[pid] = nil
 end
@@ -27,9 +27,9 @@ end
 local function handleWindowEvent(win, event, watcher, info)
   if event == events.elementDestroyed then
      cleanupWindowWatcher(info.pid, info.id)
-     windowEventWatcher("closed")
   else
-     windowEventWatcher("other")
+    -- TODO add other window events
+    -- windowEventWatcher("other")
     -- Handle other events...
   end
   hs.alert.show('window event '..event..' on '..info.id)
@@ -38,62 +38,41 @@ end
 local function watchWindow(win, initializing)
   local appWindows = watchers[win:application():pid()].windows
   if win:isStandard() and not appWindows[win:id()] then
-     print("creating new window watcher")
     local watcher = win:newWatcher(handleWindowEvent, {pid=win:pid(), id=win:id()})
-
     appWindows[win:id()] = watcher
-    print("starting window watcher "..win:id().." "..win:title().." "..win:role().." "..win:pid())
     watcher:start({events.elementDestroyed, events.windowResized, events.windowMoved})
-    print("started window watcher")
-    if not initializing then
-      hs.alert.show('window created: '..win:id()..' with title: '..win:title())
-    end
+    windowEventWatcher(windowEvents.open, win:pid(), win:id())
   end
 end
 
 
 local function handleAppEvent(element, event)
-  print("app event"..event)
   if event == events.windowCreated then
     watchWindow(element)
-    windowEventWatcher("open")
   elseif event == events.focusedWindowChanged then
-    windowEventWatcher("focus")
+    windowEventWatcher(events.focusedWindowChanged)
     -- Handle window change
   end
 end
 
 local function watchApp(app, initializing)
-  print "watching app"
-  print(app)
   if watchers[app:pid()] then return end
-  print "post watching"
-
   local watcher = app:newWatcher(handleAppEvent)
-  print "constructed watcher"
   watchers[app:pid()] = {watcher = watcher, windows = {}}
-  print "stored watcher"
- 
   watcher:start({events.windowCreated, events.focusedWindowChanged})
-  print "started watcher"
  
   -- Watch any windows that already exist
   for i, window in pairs(app:allWindows()) do
-    print("watching window: "..window:title())
     watchWindow(window, initializing)
-    print("watched window")
   end
-  print "got windows"
 end
 
 
 local function handleAppLifeEvent(name, event, app)
   if event == hs.application.watcher.launched then
-    print "app event" 
     watchApp(app)
   elseif event == hs.application.watcher.terminated then
     -- Clean up
-    print('cleaning up app'..app:pid()..'')
     cleanupAppWatchers(app:pid())
   end
 end
@@ -106,13 +85,8 @@ local function start(callback)
  
   -- Watch any apps that already exist
   local apps = hs.application.runningApplications()
-  for i, app in ipairs(apps) do
-    if app:kind() == 1 and app:pid() == 73862 then
-       print(i..' '..app:kind()..' '..app:pid()..' '..app:title())
-       -- if i == 9 then 
-       --    return
-       -- end
-
+  for i, app in pairs(apps) do
+    if app:kind() == 1 then
        if app:title() ~= "Hammerspoon" then
           watchApp(app, true)
        end
@@ -122,7 +96,7 @@ end
 
 local function stop()
    appsWatcher:stop()
-   for pid, watchers in ipairs(watchers) do
+   for pid, watchers in pairs(watchers) do
       cleanupAppWatchers(pid)
    end
    windowEventWatcher = nil
@@ -133,5 +107,6 @@ end
 return {
    start = start,
    stop  = stop,
-   events = windowEvents
+   events = windowEvents,
+   watchers = watchers
 }
